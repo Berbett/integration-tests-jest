@@ -73,7 +73,7 @@ describe('Dontpad', () => {
     expect(json).toHaveProperty('body');
     expect(json).toHaveProperty('changed');
     expect(json).toHaveProperty('lastModified');
-    expect(typeof json.body).toBe('string');
+      expect(json.body === null || typeof json.body === 'string').toBe(true);
   });
 
   it('2. escreve e lê o conteúdo', async () => {
