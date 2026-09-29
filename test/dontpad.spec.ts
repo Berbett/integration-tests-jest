@@ -8,10 +8,14 @@ const PAD = `integration-tests-${process.env.GITHUB_RUN_ID ?? Date.now()}`;
 const HEADERS = {
   Origin: 'https://dontpad.com',
   Referer: 'https://dontpad.com/',
-  'User-Agent': 'Mozilla/5.0',
+  'User-Agent': 'Mozilla/5.0'
 };
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const parse = (r: any) =>
+  typeof r.body === 'string' ? JSON.parse(r.body) : r.body;
 
 // Tenta de novo (com espera crescente) enquanto o servidor responder 429
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,7 +34,7 @@ const readPad = () =>
       .get(`${API}/${PAD}.body.json`)
       .withHeaders(HEADERS)
       .withQueryParams('lastModified', 0)
-      .toss(),
+      .toss()
   );
 
 const writePad = (text: string) =>
@@ -39,11 +43,28 @@ const writePad = (text: string) =>
       .post(`${API}/${PAD}`)
       .withHeaders({
         ...HEADERS,
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
       })
       .withBody(`text=${encodeURIComponent(text)}&lastModified=0&force=true`)
-      .toss(),
+      .toss()
   );
+
+// Lê até o conteúdo esperado aparecer (ou desiste depois de ~8s)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const readUntil = async (esperado: string): Promise<any> => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let ultimo: any;
+  for (let i = 0; i < 8; i++) {
+    const r = await readPad();
+    expect(r.statusCode).toBe(200);
+    ultimo = parse(r);
+    if (ultimo?.body?.includes(esperado)) return ultimo;
+    await sleep(1000);
+  }
+  throw new Error(
+    `Conteúdo não apareceu. Última resposta: ${JSON.stringify(ultimo)}`
+  );
+};
 
 let escreveu = false;
 
@@ -55,9 +76,8 @@ describe('Dontpad', () => {
     expect(w.statusCode).toBe(200);
     escreveu = true;
 
-    const r = await readPad();
-    expect(r.statusCode).toBe(200);
-    expect(r.body.body).toContain(texto);
+    const lido = await readUntil(texto);
+    expect(lido.body).toContain(texto);
   });
 
   it('sobrescreve o conteúdo anterior', async () => {
@@ -66,10 +86,9 @@ describe('Dontpad', () => {
     const w = await writePad(novo);
     expect(w.statusCode).toBe(200);
 
-    const r = await readPad();
-    expect(r.statusCode).toBe(200);
-    expect(r.body.body).toContain(novo);
-    expect(r.body.body).not.toContain('Olá do Jest');
+    const lido = await readUntil(novo);
+    expect(lido.body).toContain(novo);
+    expect(lido.body).not.toContain('Olá do Jest');
   });
 
   afterAll(async () => {
