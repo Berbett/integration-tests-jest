@@ -1,40 +1,131 @@
-# API test automation with Jest and PactumJS
+# Testes de API com Jest e PactumJS: Dontpad
 
-> Simple integration between JestJS and PactumJS.
+[![Node.js CI](https://github.com/Berbett/integration-tests-jest/actions/workflows/node.js.yml/badge.svg?branch=main)](https://github.com/Berbett/integration-tests-jest/actions/workflows/node.js.yml)
 
-## GitHub Actions
+Testes automatizados de integração que verificam se a API do [Dontpad](https://dontpad.com) consegue **ler** e **escrever** texto, rodando sozinhos no **GitHub Actions** a cada push.
 
-[![Node.js CI](https://github.com/ugioni/integration-tests-jest/actions/workflows/node.js.yml/badge.svg?branch=master)](https://github.com/ugioni/integration-tests-jest/actions/workflows/node.js.yml)
+> Projeto baseado no template [ugioni/integration-tests-jest](https://github.com/ugioni/integration-tests-jest) (integração simples entre Jest e PactumJS).
 
-## SonarCloud
+**Autora:** Bettina
 
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=ugioni_integration-tests-jest&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=ugioni_integration-tests-jest)
+---
 
-# Getting Started
+## O que é o Dontpad?
 
-### Pactum docs:
- - [PactumJS](https://pactumjs.github.io/)
+O Dontpad é um site de "bloco de notas público". Qualquer pessoa abre `https://dontpad.com/qualquer-nome` e o que for digitado ali fica salvo naquele endereço, sem login nem cadastro.
 
-### Prerequisites:
- - NodeJS `v22`
+Por trás do site existe uma API HTTP (`api.dontpad.com`) que o próprio navegador usa para salvar e carregar o texto. Ela **não é documentada oficialmente**, então descobrimos como ela funciona observando o tráfego do navegador (veja [Como a API foi descoberta](#como-a-api-foi-descoberta)).
 
-### How to run?
+## O que os testes fazem
 
-Inside of the project folder run:
+Os testes usam um pad de exemplo: **https://dontpad.com/teste-bettina-jest**
 
- 1. `npm install --save-dev`
- 1. `npm run ci`
+Depois de cada execução bem-sucedida, esse endereço mostra uma mensagem com a data e hora da última rodada, que serve como prova visual de que os testes escreveram de verdade.
 
-After that you should see a `./output` folder with some `HTML` reports.
+| # | Teste | O que verifica |
+|---|-------|----------------|
+| 1 | Leitura retorna a estrutura esperada | A resposta traz os campos `body`, `changed` e `lastModified` |
+| 2 | Escreve e lê o conteúdo | O texto enviado (POST) é devolvido igual na leitura (GET) |
+| 3 | Sobrescreve o conteúdo anterior | Um novo texto substitui o antigo, sem sobras |
+| 4 | Acentos e caracteres especiais | `ação`, `coração`, `ñ`, `ü`, `& = ? #` chegam intactos |
+| 5 | Mensagem final com várias linhas | Quebras de linha são preservadas e a mensagem fica visível no site |
 
-### Docs to Api under tests: 
- - [Dummyjson](https://dummyjson.com/docs)
- - [Gorest](https://gorest.co.in/)
- - [Toolshop API](https://api.practicesoftwaretesting.com/api/documentation)
- - [Deck of Cards](https://deckofcardsapi.com/)
- - [JSON placeholder](https://jsonplaceholder.typicode.com/)
- - [http bin](http://httpbin.org/)
- - [rick and morty api](https://rickandmortyapi.com/documentation/#rest)
- - [Petstore](https://petstore.swagger.io/#/) 
- - [ServeRest](https://serverest.dev/#/)
- - [ServeRest - Datadog](https://p.datadoghq.eu/sb/421fcfee-35ec-11ee-b87f-da7ad0900005-2aaf85264a89d11b7001bcab452a266e?refresh_mode=sliding&theme=light&tpl_var_env%5B0%5D=serverest.dev&from_ts=1699931511294&to_ts=1699932411294&live=true)
+## Como funciona
+
+```mermaid
+flowchart LR
+    A[Push no GitHub] --> B[GitHub Actions]
+    B --> C[npm run ci]
+    C --> D[Jest + PactumJS]
+    D -->|POST texto| E[(api.dontpad.com)]
+    D -->|GET texto| E
+    E --> F[Teste compara o resultado]
+    F --> G[Relatório HTML]
+```
+
+### Os endpoints usados
+
+| Ação | Requisição |
+|------|------------|
+| **Ler** | `GET https://api.dontpad.com/{pad}.body.json?lastModified=0` |
+| **Escrever** | `POST https://api.dontpad.com/{pad}` com corpo `text=...&lastModified=0&force=true` |
+
+- A leitura devolve um JSON como `{ "body": "texto do pad", "changed": true, "lastModified": 1790721225957 }`.
+- A escrita usa `application/x-www-form-urlencoded`. O parâmetro `force=true` sobrescreve o conteúdo sem depender da versão anterior.
+
+### Cuidados tomados no código
+
+- **Retry automático em caso de 429.** O Dontpad limita a quantidade de requisições. Se responder "muitas requisições" (HTTP 429), o teste espera alguns segundos e tenta de novo.
+- **Leitura com espera (`readUntil`).** Depois de escrever, o teste consulta várias vezes até o texto novo aparecer, porque o servidor pode levar um instante para refletir a mudança.
+- **Cabeçalhos de navegador** (`Origin`, `Referer`, `User-Agent`), iguais aos que o site real envia.
+
+## Como rodar
+
+### Pré-requisitos
+
+- Node.js `v22`
+
+### Passo a passo
+
+```bash
+npm install
+npm run ci
+```
+
+O comando `npm run ci` executa, em sequência:
+
+1. `clean`: limpa a pasta `output`
+2. `format`: formata o código com Prettier
+3. `verify`: confere a formatação
+4. `eslint`: analisa o código
+5. `test`: roda os testes com Jest
+
+Ao terminar, a pasta `./output` contém os relatórios em HTML (`report.html` dos testes e `eslint.html` da análise de código).
+
+### No GitHub Actions
+
+O workflow em `.github/workflows/` roda `npm run ci` automaticamente a cada push. O resultado aparece na aba **Actions** do repositório, e não é preciso configurar nenhum segredo, porque a API do Dontpad não exige login.
+
+## Como a API foi descoberta
+
+Como não há documentação oficial, o caminho foi observar o que o navegador faz:
+
+1. Abrir um pad no navegador com as ferramentas de desenvolvedor (F12, aba **Network**).
+2. Digitar algo e ver qual requisição é enviada para salvar.
+3. Exportar o tráfego (arquivo HAR) e ler os campos: URL, método, cabeçalhos e corpo.
+
+Foi assim que se chegou ao endereço `api.dontpad.com` e ao formato do corpo da escrita. Uma biblioteca antiga do npm (`dontpad-api`) foi testada primeiro, mas usa um endereço que não responde mais, então o teste chama a API diretamente com o PactumJS.
+
+## Por que o Dontpad?
+
+A ideia inicial era testar a API do Spotify (adicionar, listar e remover músicas de uma playlist). Isso exigiria autenticação OAuth com token de usuário e conta Spotify Premium para o app de desenvolvimento, o que complica a execução automática no CI. O Dontpad oferece o mesmo tipo de exercício (criar, ler e alterar um recurso via HTTP) sem nenhuma dessa burocracia.
+
+## Limitações
+
+- **API não oficial:** pode mudar ou sair do ar sem aviso.
+- **Limite de requisições:** em redes compartilhadas (como a de uma faculdade), o Dontpad pode responder 429 e os testes falharem localmente, mesmo estando corretos. No GitHub Actions o resultado costuma ser estável.
+- **Conteúdo público:** qualquer pessoa que souber o nome do pad pode ler e escrever nele, então não há dado sensível nos testes.
+
+## Tecnologias
+
+- [Jest](https://jestjs.io/): executor de testes
+- [PactumJS](https://pactumjs.github.io/): cliente e asserções para testes de API
+- [TypeScript](https://www.typescriptlang.org/)
+- [ESLint](https://eslint.org/) e [Prettier](https://prettier.io/): qualidade e padronização do código
+- [GitHub Actions](https://github.com/features/actions): execução automática
+
+## Estrutura
+
+```
+.
+├── .github/workflows/   # pipeline de CI (GitHub Actions)
+├── test/
+│   └── dontpad.spec.ts  # os 5 testes da API do Dontpad
+├── jest.config.js
+├── tsconfig.json
+└── package.json
+```
+
+## Licença
+
+MIT
